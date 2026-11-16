@@ -496,6 +496,72 @@ def _extract_juejin(url: str, max_pages: int = 10) -> ThreadData:
     )
 
 
+def _extract_xiaoheihe(url: str, max_pages: int = 10) -> ThreadData:
+    m = re.search(r"xiaoheihe\.cn/(?:app/bbs/link|bbs/post)/(\d+)", url)
+    if not m:
+        raise UnsupportedPlatformError(f"无法从小黑盒链接提取帖子 ID：{url}")
+    link_id = m.group(1)
+
+    with sync_playwright() as p:
+        browser = _launch_browser(p)
+        page = browser.new_page()
+        tree_status = None
+
+        def on_resp(resp):
+            nonlocal tree_status
+            if "/bbs/app/link/tree" in resp.url:
+                try:
+                    tree_status = resp.json().get("status")
+                except Exception:
+                    pass
+
+        page.on("response", on_resp)
+        page.goto(url, wait_until="domcontentloaded", timeout=25000)
+        page.wait_for_timeout(4000)
+
+        if tree_status == "show_captcha":
+            browser.close()
+            raise AccessBlockedError(
+                f"小黑盒帖子详情接口返回人机验证拦截（status: show_captcha）：{url}。"
+                "受平台反爬/验证机制限制无法自动抓取，请在浏览器中自行完成验证后查看或手动保存页面。"
+            )
+
+        payload = page.evaluate("""() => {
+            const root = document.querySelector('.hb-bbs-link');
+            const title = document.querySelector('h1, .hb-bbs-link h1')?.innerText?.trim() || document.title;
+            const body = root ? root.innerHTML : '';
+            const textLen = root ? root.innerText.trim().length : 0;
+            return { title, body, textLen };
+        }""")
+        browser.close()
+
+    if payload["textLen"] < 30:
+        raise AccessBlockedError(
+            f"未能从小黑盒页面提取有效正文（可能触发登录或人机验证，status={tree_status}）：{url}"
+        )
+
+    body_html, body_len = clean_rich_html(payload["body"], "https://www.xiaoheihe.cn/")
+    return ThreadData(
+        platform="小黑盒",
+        domain="www.xiaoheihe.cn",
+        source_url=url,
+        thread_id=f"heybox-{link_id}",
+        title=payload["title"],
+        forum_name="社区帖子",
+        total_pages=1,
+        posts=[
+            PostItem(
+                floor=1,
+                author="小黑盒用户",
+                time="",
+                body_html=body_html,
+                is_lz=True,
+                text_len=body_len,
+            )
+        ],
+    )
+
+
 def extract_thread(url: str, max_pages: int = 10) -> ThreadData:
     host = urllib.parse.urlparse(url).netloc.lower()
     if "v2ex.com" in host:
@@ -510,6 +576,8 @@ def extract_thread(url: str, max_pages: int = 10) -> ThreadData:
         return _extract_cnblogs(url, max_pages=max_pages)
     if "juejin.cn" in host:
         return _extract_juejin(url, max_pages=max_pages)
+    if "xiaoheihe.cn" in host:
+        return _extract_xiaoheihe(url, max_pages=max_pages)
     if (
         any(d in host for d in ("chongbuluo.com", "52pojie.cn", "chiphell.com", "hostloc.com"))
         or "mod=viewthread" in url

@@ -19,7 +19,7 @@ description: 将国内主流论坛与内容社区帖子（虫部落/吾爱破解
 | **博客园** | `cnblogs.com/<blog>/p/<id>` | 提取 `#cnblogs_post_body`，保留技术代码块、表格与配图 |
 | **稀土掘金** | `juejin.cn/post/<id>` | 通过 Playwright 无头浏览器渲染 `.markdown-body` 正文、配图与评论 |
 
-> 若目标平台返回 403 / 需登录 / 人机验证（如部分豆瓣小组、贴吧、NGA、Linux.do 帖子），脚本会抛出 `AccessBlockedError` 并以退出码 `2` 清晰提示；**严禁尝试绕过登录或人机验证**。
+> 若目标平台返回 403 / 需登录 / 人机验证（如部分豆瓣小组、贴吧、NGA、Linux.do 帖子，以及小黑盒 `xiaoheihe.cn` 详情接口返回 `status: show_captcha` 时），脚本会抛出 `AccessBlockedError` 并以退出码 `2` 清晰提示；**严禁尝试绕过登录或人机验证**。
 
 ## 前置依赖
 
