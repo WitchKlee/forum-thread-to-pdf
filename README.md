@@ -1,15 +1,18 @@
 # forum-thread-to-pdf
 
-将 Discuz! 论坛帖子（如虫部落 `chongbuluo.com`）完整抓取、去重整理并排版导出为高清 A4 PDF 的 Agent Skill 与命令行工具。
+将国内主流论坛与内容社区的帖子/文章完整抓取、清洗去重并排版导出为高清 A4 PDF 的 Agent Skill 与命令行工具。
 
-## 特性
+## 已支持平台
 
-- **自动翻页抓取**：自动解析帖子总页数（支持单页长文与多页盖楼讨论）。
-- **推荐回帖去重 & 时序重排**：自动去除 Discuz! 置顶“推荐回帖”产生的重复楼层，按 `post_id` 时间顺序严格排列。
-- **双排版模式自适应**：
-  - `article`（长文模式）：适合 1 楼为长篇心得/教程、回复较少的帖子，保留小标题层级与仿宋首行缩进正文排版，文末附后续回复。
-  - `qa`（问答盖楼模式）：适合多页互动、问答盖楼贴，按楼层卡片排版，高亮`楼主`标签、编辑说明与引用块（Quote）。
-- **保留细节与校验**：保留 `补充内容`、内嵌图片（兼容懒加载 `file` 属性）及页码页脚，并支持输出首末页 PNG 预览用于分页检查。
+| 平台 | 支持特性 |
+| --- | --- |
+| **Discuz! 论坛**（虫部落、吾爱破解、Chiphell 等） | UTF-8 / GBK / GB18030 自动识别、多页抓取、推荐回帖去重、时序重排、代码块与附件图片还原 |
+| **V2EX** | 基于公开 API 获取主帖与全部回复楼层，无惧网页端访问限制 |
+| **虎扑社区** | 解析 `__NEXT_DATA__` SSR 数据，多页回帖翻页、引用块与`亮了 ×N`标记 |
+| **少数派** | 文章详情 + 热门评论 API 提取，自动处理 CDN 防盗链配图 |
+| **微信公众号** | 解析正文与发布时间戳，自动还原 `data-src` 懒加载图片并本地化嵌入 |
+| **博客园** | 提取完整博文正文、代码块、表格与配图 |
+| **稀土掘金** | Playwright 无头渲染提取 Markdown 正文、代码、配图与精选评论 |
 
 ## 目录结构
 
@@ -19,7 +22,9 @@ forum-thread-to-pdf/
 ├── README.md                 # 项目说明
 ├── requirements.txt          # Python 依赖
 └── scripts/
-    └── thread_to_pdf.py      # 抓取与 PDF 渲染主脚本
+    ├── core.py               # 数据模型、编码嗅探、HTML 清洗、图片本地化缓存与 A4 PDF 渲染
+    ├── adapters.py           # 各平台解析适配器与路由分发
+    └── thread_to_pdf.py      # 命令行入口
 ```
 
 ## 安装依赖
@@ -34,14 +39,22 @@ pip install -r requirements.txt
 
 将本仓库克隆或复制到全局 Skills 目录（例如 `~/.gemini/config/skills/forum-thread-to-pdf`）或项目工作区的 `.agents/skills/forum-thread-to-pdf` 即可被自动发现。
 
-## 命令行直接使用
+## 命令行使用示例
 
 ```bash
-# 自动判断文章/问答模式并导出 PDF
-python scripts/thread_to_pdf.py "https://www.chongbuluo.com/forum.php?mod=viewthread&tid=25377" -o output.pdf
+# 1. Discuz!（支持 UTF-8 虫部落 / GBK 吾爱破解）
+python scripts/thread_to_pdf.py "https://www.chongbuluo.com/forum.php?mod=viewthread&tid=25377"
+python scripts/thread_to_pdf.py "https://www.52pojie.cn/thread-2117334-1-1.html" --max-pages 1
 
-# 强制使用问答模式，仅保留楼主回复，并输出首末页预览图
-python scripts/thread_to_pdf.py "https://www.chongbuluo.com/forum.php?mod=viewthread&tid=23914" --mode qa --replies lz-only --verify-dir ./verify
+# 2. V2EX / 虎扑社区（问答盖楼模式）
+python scripts/thread_to_pdf.py "https://www.v2ex.com/t/1257339"
+python scripts/thread_to_pdf.py "https://bbs.hupu.com/643983153.html" --max-pages 2
+
+# 3. 少数派 / 微信公众号 / 博客园 / 稀土掘金（文章模式）
+python scripts/thread_to_pdf.py "https://sspai.com/post/118100"
+python scripts/thread_to_pdf.py "https://mp.weixin.qq.com/s/8Zzn4wMBENZAPSdS6tT2Sg"
+python scripts/thread_to_pdf.py "https://www.cnblogs.com/hugogoos/p/23668983"
+python scripts/thread_to_pdf.py "https://juejin.cn/post/7700887980140429322"
 ```
 
 ### 常用参数
@@ -51,5 +64,6 @@ python scripts/thread_to_pdf.py "https://www.chongbuluo.com/forum.php?mod=viewth
 | `-o, --output` | 文件路径 | 输出 PDF 路径（默认当前目录 `<帖子标题>.pdf`） |
 | `--mode` | `auto` / `article` / `qa` | 排版模式（默认 `auto` 自动判断） |
 | `--replies` | `all` / `lz-only` / `none` | 回复收录范围（全部 / 仅看楼主 / 仅主帖） |
-| `--html-out` | 文件路径 | 保存中间 HTML 以便微调样式 |
+| `--max-pages` | 整数 | 多页帖子最大抓取页数（默认 `10`，`0` 表示全部） |
+| `--html-out` | 文件路径 | 保存清洗后的中间 HTML 以便微调样式 |
 | `--verify-dir` | 目录路径 | 导出后生成页数统计与首末页 PNG 预览图 |
